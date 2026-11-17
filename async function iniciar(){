@@ -34,7 +34,16 @@ small{color:#64748b}
 <h1>METÁLICA CONTROL</h1>
 <p>Gestão inteligente de contas a receber</p>
 </header>
-<main>
+<section id="login-area" style="max-width:400px;margin:30px auto;background:white;padding:25px;border-radius:12px">
+  <h2>Entrar no sistema</h2>
+  <form id="formLogin">
+    <input id="email" type="email" placeholder="Seu e-mail" required>
+    <input id="senha" type="password" placeholder="Sua senha" required>
+    <button type="submit">Entrar</button>
+  </form>
+  <p id="login-mensagem"></p>
+</section>
+ <main>
 <div id="aviso">Conectando ao banco de dados...</div>
 <div class="cards">
 <div class="card">Total registrado<strong id="total">R$ 0,00</strong></div>
@@ -93,11 +102,49 @@ const moeda = n => Number(n).toLocaleString("pt-BR",{style:"currency",currency:"
 const aviso = msg => document.getElementById("aviso").textContent = msg;
 
 async function iniciar(){
- if(SUPABASE_URL.includes("COLE_AQUI") || SUPABASE_KEY.includes("COLE_AQUI")){
-  aviso("Falta configurar a conexão com o Supabase.");
+ const login = document.getElementById("login-area");
+ const painel = document.querySelector("main");
+
+ login.style.display = "block";
+ painel.style.display = "none";
+
+ db = window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+ const {data,error} = await db.auth.getSession();
+
+ if(error){
+  document.getElementById("login-mensagem").textContent = error.message;
   return;
  }
- db = window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+ if(data.session){
+  login.style.display = "none";
+  painel.style.display = "block";
+  await carregar();
+ }
+}
+
+document.getElementById("formLogin").addEventListener("submit",async e=>{
+ e.preventDefault();
+
+ const mensagem = document.getElementById("login-mensagem");
+ mensagem.textContent = "Entrando...";
+
+ const {error} = await db.auth.signInWithPassword({
+  email: document.getElementById("email").value,
+  password: document.getElementById("senha").value
+ });
+
+ if(error){
+  mensagem.textContent = "Erro: " + error.message;
+  return;
+ }
+
+ document.getElementById("login-area").style.display = "none";
+ document.querySelector("main").style.display = "block";
+
+ await carregar();
+});
  await carregar();
 }
 
