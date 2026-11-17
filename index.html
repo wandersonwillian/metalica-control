@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>METÁLICA CONTROL</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial;background:#f1f5f9;color:#172b43}
+header{background:#102b46;color:white;padding:25px}
+header h1{margin:0}
+main{max-width:1050px;margin:25px auto;padding:15px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:15px}
+.card,section{background:white;padding:20px;border-radius:12px;margin-bottom:18px;box-shadow:0 2px 9px #0001}
+.card strong{font-size:23px;display:block;margin-top:10px}
+input,select,button{padding:12px;border:1px solid #ccd5df;border-radius:7px;font-size:15px;width:100%;margin:6px 0}
+button{background:#1765a5;color:white;border:0;cursor:pointer;font-weight:bold}
+button:hover{opacity:.85}
+form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:12px;border-bottom:1px solid #e2e8f0}
+th{background:#f1f5f9}
+.status{font-weight:bold}
+.pago{color:#15803d}.atrasado{color:#dc2626}.pendente{color:#b45309}
+.tablewrap{overflow-x:auto}
+small{color:#64748b}
+#aviso{padding:12px;border-radius:8px;background:#e0f2fe;margin:12px 0}
+@media(max-width:600px){header{padding:18px}.tablewrap{font-size:13px}}
+</style>
+</head>
+<body>
+<header>
+<h1>METÁLICA CONTROL</h1>
+<p>Gestão inteligente de contas a receber</p>
+</header>
+<main>
+<div id="aviso">Conectando ao banco de dados...</div>
+<div class="cards">
+<div class="card">Total registrado<strong id="total">R$ 0,00</strong></div>
+<div class="card">Recebido<strong id="recebido">R$ 0,00</strong></div>
+<div class="card">A receber<strong id="pendente">R$ 0,00</strong></div>
+<div class="card">Atrasado<strong id="atrasado">R$ 0,00</strong></div>
+</div>
+
+<section>
+<h2>Cadastrar cliente</h2>
+<form id="formCliente">
+<input id="nome" placeholder="Nome do cliente" required>
+<input id="telefone" placeholder="Telefone">
+<button type="submit">Cadastrar cliente</button>
+</form>
+</section>
+
+<section>
+<h2>Cadastrar nota fiscal</h2>
+<form id="formNota">
+<input id="numero" placeholder="Número da nota fiscal" required>
+<select id="cliente" required>
+<option value="">Selecione o cliente</option>
+</select>
+<input id="valor" type="number" step="0.01" min="0.01" placeholder="Valor da parcela (R$)" required>
+<input id="vencimento" type="date" required>
+<select id="prazo">
+<option>30 dias</option><option>60 dias</option><option>90 dias</option>
+</select>
+<button type="submit">Salvar nota fiscal</button>
+</form>
+</section>
+
+<section>
+<h2>Contas a receber</h2>
+<input id="busca" placeholder="Pesquisar cliente ou nota fiscal...">
+<div class="tablewrap">
+<table>
+<thead><tr><th>Cliente</th><th>Nota</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Ação</th></tr></thead>
+<tbody id="lista"></tbody>
+</table>
+</div>
+</section>
+<small>METÁLICA CONTROL — Protótipo de gestão financeira.</small>
+</main>
+
+<script>
+const SUPABASE_URL = "COLE_AQUI_SUA_PROJECT_URL";
+const SUPABASE_KEY = "COLE_AQUI_SUA_PUBLISHABLE_KEY";
+
+let db = null;
+let clientes = [];
+let notas = [];
+
+const moeda = n => Number(n).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+const aviso = msg => document.getElementById("aviso").textContent = msg;
+
+async function iniciar(){
+ if(SUPABASE_URL.includes("COLE_AQUI") || SUPABASE_KEY.includes("COLE_AQUI")){
+  aviso("Falta configurar a conexão com o Supabase.");
+  return;
+ }
+ db = window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+ await carregar();
+}
+
+async function carregar(){
+ try{
+  const [c,n] = await Promise.all([
+   db.from("clientes").select("*").order("nome"),
+   db.from("notas_fiscais").select("*, clientes(nome)").order("vencimento")
+  ]);
+  if(c.error) throw c.error;
+  if(n.error) throw n.error;
+  clientes = c.data || [];
+  notas = n.data || [];
+  atualizar();
+  aviso("Sistema conectado ao banco de dados!");
+ }catch(e){aviso("Erro ao conectar: "+e.message);}
+}
+
+function atualizar(){
+ const hoje = new Date().toISOString().slice(0,10);
+ const pagos = notas.filter(n=>n.status==="Pago");
+ const atrasados = notas.filter(n=>n.status!=="Pago" && n.vencimento<hoje);
+ const pendentes = notas.filter(n=>n.status!=="Pago" && n.vencimento>=hoje);
+ document.getElementById("total").textContent=moeda(notas.reduce((s,n)=>s+Number(n.valor),0));
+ document.getElementById("recebido").textContent=moeda(pagos.reduce((s,n)=>s+Number(n.valor),0));
+ document.getElementById("pendente").textContent=moeda(pendentes.reduce((s,n)=>s+Number(n.valor),0));
+ document.getElementById("atrasado").textContent=moeda(atrasados.reduce((s,n)=>s+Number(n.valor),0));
+ document.getElementById("cliente").innerHTML='<option value="">Selecione o cliente</option>'+clientes.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join("");
+ renderizar();
+}
+
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+
+function renderizar(){
+ const busca=document.getElementById("busca").value.toLowerCase();
+ const hoje=new Date().toISOString().slice(0,10);
+ const filtradas=notas.filter(n=>(n.clientes?.nome||"").toLowerCase().includes(busca)||String(n.numero).toLowerCase().includes(busca));
+ document.getElementById("lista").innerHTML=filtradas.map(n=>{
+  const pago=n.status==="Pago";
+  const atraso=!pago && n.vencimento<hoje;
+  const status=pago?"Pago":atraso?"Atrasado":"Pendente";
+  return `<tr>
+  <td>${esc(n.clientes?.nome||"Cliente")}</td>
+  <td>${esc(n.numero)}</td>
+  <td>${moeda(n.valor)}</td>
+  <td>${n.vencimento.split("-").reverse().join("/")}</td>
+  <td class="status ${pago?"pago":atraso?"atrasado":"pendente"}">${status}</td>
+  <td>${pago?"✓":`<button onclick="pagar(${n.id})">Marcar pago</button>`}</td>
+  </tr>`;
+ }).join("");
+}
+
+document.getElementById("formCliente").addEventListener("submit",async e=>{
+ e.preventDefault();
+ if(!db)return;
+ const {error}=await db.from("clientes").insert({
+  nome:document.getElementById("nome").value.trim(),
+  telefone:document.getElementById("telefone").value.trim()
+ });
+ if(error){aviso("Erro: "+error.message);return;}
+ e.target.reset();
+ await carregar();
+});
+
+document.getElementById("formNota").addEventListener("submit",async e=>{
+ e.preventDefault();
+ if(!db)return;
+ const {error}=await db.from("notas_fiscais").insert({
+  numero:document.getElementById("numero").value.trim(),
+  cliente_id:Number(document.getElementById("cliente").value),
+  valor:Number(document.getElementById("valor").value),
+  vencimento:document.getElementById("vencimento").value,
+  prazo:document.getElementById("prazo").value,
+  status:"Pendente"
+ });
+ if(error){aviso("Erro: "+error.message);return;}
+ e.target.reset();
+ await carregar();
+});
+
+async function pagar(id){
+ if(!confirm("Confirmar que o pagamento foi recebido?"))return;
+ const {error}=await db.from("notas_fiscais").update({status:"Pago"}).eq("id",id);
+ if(error){aviso("Erro: "+error.message);return;}
+ await carregar();
+}
+document.getElementById("busca").addEventListener("input",renderizar);
+iniciar();
+</script>
+</body>
+</html>
